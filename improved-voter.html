@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voter - VoteChain</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <a href="/" class="brand">VoteChain</a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/results">Results</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Cast Your Vote</h1>
+    
+    <div id="electionInfo" class="election-info" style="display: none;">
+      <h2 id="electionTitle"></h2>
+      <p>Choose your candidate below:</p>
+    </div>
+
+    <div id="noElection" class="error-message" style="display: none;">
+      <p>No active election at this time.</p>
+      <a href="/">Return Home</a>
+    </div>
+
+    <form id="voteForm" style="display: none;">
+      <div class="form-group">
+        <label for="voterId">Voter ID:</label>
+        <input type="text" 
+               id="voterId" 
+               name="voterId" 
+               placeholder="Enter your unique voter ID" 
+               required 
+               maxlength="50"
+               pattern="[A-Za-z0-9]+"
+               title="Only letters and numbers allowed">
+      </div>
+
+      <div id="candidateContainer" class="form-group">
+        <label for="candidate">Candidate:</label>
+        <!-- Dynamic candidate selection will be inserted here -->
+      </div>
+
+      <button type="submit" id="voteButton">Cast Vote</button>
+    </form>
+
+    <div id="message" class="message" style="display: none;"></div>
+    
+    <p><a href="/">Return Home</a></p>
+  </main>
+
+  <script>
+    class VotingApp {
+      constructor() {
+        this.form = document.getElementById('voteForm');
+        this.messageDiv = document.getElementById('message');
+        this.voteButton = document.getElementById('voteButton');
+        this.init();
+      }
+
+      async init() {
+        await this.loadElectionData();
+        this.setupEventListeners();
+      }
+
+      async loadElectionData() {
+        try {
+          const response = await fetch('/candidates');
+          
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          
+          if (!data.active || !data.candidates || data.candidates.length === 0) {
+            this.showNoElection();
+            return;
+          }
+
+          this.displayElection(data);
+          this.createCandidateSelection(data.candidates);
+          
+        } catch (error) {
+          console.error('Failed to load election data:', error);
+          this.showError('Failed to load election information. Please try again later.');
+        }
+      }
+
+      showNoElection() {
+        document.getElementById('noElection').style.display = 'block';
+        document.getElementById('electionInfo').style.display = 'none';
+        this.form.style.display = 'none';
+      }
+
+      displayElection(data) {
+        document.getElementById('electionTitle').textContent = data.title;
+        document.getElementById('electionInfo').style.display = 'block';
+        this.form.style.display = 'block';
+      }
+
+      createCandidateSelection(candidates) {
+        const container = document.getElementById('candidateContainer');
+        
+        if (candidates.length <= 2) {
+          // Radio buttons for small number of candidates
+          const radioContainer = document.createElement('div');
+          radioContainer.className = 'radio-group';
+          
+          candidates.forEach((candidate, index) => {
+            const radioDiv = document.createElement('div');
+            radioDiv.className = 'radio-option';
+            
+            const radio = document.createElement('input');
+            radio.type = 'radio';
+            radio.id = `candidate_${index}`;
+            radio.name = 'candidate';
+            radio.value = candidate;
+            radio.required = true;
+            
+            const label = document.createElement('label');
+            label.htmlFor = `candidate_${index}`;
+            label.textContent = candidate;
+            
+            radioDiv.appendChild(radio);
+            radioDiv.appendChild(label);
+            radioContainer.appendChild(radioDiv);
+          });
+          
+          container.appendChild(radioContainer);
+        } else {
+          // Dropdown for many candidates
+          const select = document.createElement('select');
+          select.name = 'candidate';
+          select.id = 'candidate';
+          select.required = true;
+          
+          const defaultOption = document.createElement('option');
+          defaultOption.value = '';
+          defaultOption.textContent = 'Select a candidate...';
+          select.appendChild(defaultOption);
+          
+          candidates.forEach(candidate => {
+            const option = document.createElement('option');
+            option.value = candidate;
+            option.textContent = candidate;
+            select.appendChild(option);
+          });
+          
+          container.appendChild(select);
+        }
+      }
+
+      setupEventListeners() {
+        this.form.addEventListener('submit', (e) => this.handleVoteSubmission(e));
+      }
+
+      async handleVoteSubmission(event) {
+        event.preventDefault();
+        
+        this.voteButton.disabled = true;
+        this.voteButton.textContent = 'Casting Vote...';
+        this.hideMessage();
+
+        try {
+          const formData = new FormData(this.form);
+          const voteData = {
+            voterId: formData.get('voterId').trim(),
+            candidate: formData.get('candidate')
+          };
+
+          if (!voteData.voterId || !voteData.candidate) {
+            throw new Error('Please fill in all fields');
+          }
+
+          const response = await fetch('/cast-vote', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(voteData)
+          });
+
+          const result = await response.json();
+
+          if (response.ok) {
+            this.showSuccess(`Vote cast successfully! Block #${result.blockIndex} created at ${new Date(result.timestamp).toLocaleString()}`);
+            this.form.reset();
+            setTimeout(() => {
+              window.location.href = '/results';
+            }, 3000);
+          } else {
+            throw new Error(result.error || 'Failed to cast vote');
+          }
+
+        } catch (error) {
+          console.error('Vote submission error:', error);
+          this.showError(error.message);
+        } finally {
+          this.voteButton.disabled = false;
+          this.voteButton.textContent = 'Cast Vote';
+        }
+      }
+
+      showError(message) {
+        this.messageDiv.textContent = message;
+        this.messageDiv.className = 'message error';
+        this.messageDiv.style.display = 'block';
+      }
+
+      showSuccess(message) {
+        this.messageDiv.textContent = message;
+        this.messageDiv.className = 'message success';
+        this.messageDiv.style.display = 'block';
+      }
+
+      hideMessage() {
+        this.messageDiv.style.display = 'none';
+      }
+    }
+
+    // Initialize the app when DOM is loaded
+    document.addEventListener('DOMContentLoaded', () => {
+      new VotingApp();
+    });
+  </script>
+
+  <style>
+    .election-info {
+      background: #e3f2fd;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+      border-left: 4px solid #1565C0;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+      color: #333;
+    }
+
+    .radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .radio-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+      border: 2px solid #e0e0e0;
+      border-radius: 4px;
+      transition: border-color 0.2s;
+    }
+
+    .radio-option:hover {
+      border-color: #1565C0;
+    }
+
+    .radio-option input[type="radio"]:checked + label {
+      color: #1565C0;
+      font-weight: bold;
+    }
+
+    .message {
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+
+    .message.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .message.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .error-message {
+      background: #fff3cd;
+      color: #856404;
+      padding: 20px;
+      border-radius: 8px;
+      border: 1px solid #ffeaa7;
+      text-align: center;
+    }
+  </style>
+</body>
+</html>
